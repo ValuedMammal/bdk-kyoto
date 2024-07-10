@@ -16,7 +16,9 @@ git = "https://github.com/rustaceanrob/kyoto"
 rev = "73d841f761e96a2dd0cb2541200825ff8311266d"
 
 [dependencies.bdk_wallet]
-version = "1.0.0-alpha.13"
+# verion alpha.13
+git = "https://github.com/bitcoindevkit/bdk"
+rev = "05438017876c3338d091ca85e52242b455e2193a"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"], default-features = false }

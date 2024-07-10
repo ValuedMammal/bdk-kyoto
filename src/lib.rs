@@ -19,6 +19,7 @@ use bdk_wallet::chain::{
 };
 
 pub use kyoto::node::messages::SyncUpdate;
+pub use kyoto::chain;
 pub use kyoto::node::node::Node;
 pub use kyoto::node::{self, messages::NodeMessage};
 pub use kyoto::IndexedBlock;

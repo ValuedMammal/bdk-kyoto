@@ -1,44 +1,38 @@
 //! bdk_kyoto
-#![allow(unused)]
 #![warn(missing_docs)]
 
-use bdk_wallet::bitcoin::{BlockHash, Transaction};
-use bdk_wallet::chain::local_chain::LocalChain;
-use bdk_wallet::chain::spk_client::FullScanResult;
 use core::fmt;
-use core::mem;
-use kyoto::node::client::Receiver;
-use logger::NodeMessageHandler;
 use std::collections::HashSet;
 
+use bdk_wallet::bitcoin::{ScriptBuf, Transaction};
 use bdk_wallet::chain::{
-    collections::BTreeMap,
     keychain::KeychainTxOutIndex,
-    local_chain::{self, CheckPoint},
-    BlockId, ConfirmationTimeHeightAnchor, IndexedTxGraph,
+    local_chain::{self, CheckPoint, LocalChain},
+    spk_client::FullScanResult,
+    ConfirmationTimeHeightAnchor, IndexedTxGraph,
 };
 
-pub use kyoto::node::messages::SyncUpdate;
-pub use kyoto::chain;
-pub use kyoto::node::node::Node;
-pub use kyoto::node::{self, messages::NodeMessage};
-pub use kyoto::IndexedBlock;
-pub use kyoto::ScriptBuf;
-pub use kyoto::TrustedPeer;
-pub use kyoto::TxBroadcast;
-pub use kyoto::TxBroadcastPolicy;
+use crate::logger::NodeMessageHandler;
 
 pub mod builder;
 pub mod logger;
 
-/// Block height
-type Height = u32;
+pub use kyoto::{
+    chain::checkpoints::HeaderCheckpoint,
+    node::{
+        self,
+        client::{self, Receiver},
+        messages::{NodeMessage, SyncUpdate},
+        node::Node,
+    },
+    IndexedBlock, TrustedPeer, TxBroadcast, TxBroadcastPolicy,
+};
 
 /// Client.
 #[derive(Debug)]
 pub struct Client<K> {
     // channel sender
-    sender: node::client::ClientSender,
+    sender: client::ClientSender,
     // channel receiver
     receiver: kyoto::node::client::Receiver<NodeMessage>,
     // changes to local chain
@@ -53,11 +47,11 @@ impl<K> Client<K>
 where
     K: fmt::Debug + Clone + Ord,
 {
-    /// Build a light client from an `KeychainTxOutIndex` and checkpoint
+    /// Build a light client from a [`KeychainTxOutIndex`] and checkpoint
     pub fn from_index(
         cp: CheckPoint,
         index: &KeychainTxOutIndex<K>,
-        client: node::client::Client,
+        client: client::Client,
     ) -> Self {
         let (sender, receiver) = client.split();
         Self {
@@ -110,11 +104,10 @@ where
             }
         }
         self.chain.apply_changeset(&chain_changeset).unwrap();
-        let indexed_tx_graph = mem::take(&mut self.graph);
         Some(FullScanResult {
-            graph_update: indexed_tx_graph.graph().clone(),
+            graph_update: self.graph.graph().clone(),
             chain_update: self.chain.tip(),
-            last_active_indices: indexed_tx_graph.index.last_used_indices(),
+            last_active_indices: self.graph.index.last_used_indices(),
         })
     }
 
@@ -158,13 +151,7 @@ where
         tx: &Transaction,
         policy: TxBroadcastPolicy,
     ) -> Result<(), Error> {
-        self.sender
-            .broadcast_tx(TxBroadcast {
-                tx: tx.clone(),
-                broadcast_policy: policy,
-            })
-            .await
-            .map_err(Error::Sender)
+        self.transaction_broadcaster().broadcast(tx, policy).await
     }
 
     /// Add more scripts to the node. Could this just check a SPK index?
@@ -191,19 +178,20 @@ where
     }
 }
 
-/// Broadcast transactions to the network.
+/// Type that broadcasts transactions to the network.
 #[derive(Debug)]
 pub struct TransactionBroadcaster {
-    sender: node::client::ClientSender,
+    sender: client::ClientSender,
 }
 
 impl TransactionBroadcaster {
-    fn new(sender: node::client::ClientSender) -> Self {
+    /// Create a new transaction broadcaster with the given client `sender`.
+    pub fn new(sender: client::ClientSender) -> Self {
         Self { sender }
     }
 
     /// Broadcast a [`Transaction`] with a [`TxBroadcastPolicy`] strategy.
-    async fn broadcast(
+    pub async fn broadcast(
         &mut self,
         tx: &Transaction,
         policy: TxBroadcastPolicy,

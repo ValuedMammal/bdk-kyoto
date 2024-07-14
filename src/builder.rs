@@ -2,7 +2,7 @@
 
 use std::{collections::HashSet, path::PathBuf, str::FromStr};
 
-use bdk_wallet::{chain::local_chain::CheckPoint, KeychainKind, Wallet};
+use bdk_wallet::{KeychainKind, Wallet};
 use kyoto::{
     chain::checkpoints::{
         HeaderCheckpoint, MAINNET_HEADER_CP, REGTEST_HEADER_CP, SIGNET_HEADER_CP,
@@ -11,10 +11,7 @@ use kyoto::{
     BlockHash, Network, ScriptBuf, TrustedPeer,
 };
 
-use crate::{
-    logger::{NodeMessageHandler, PrintLogger},
-    Client,
-};
+use crate::{logger::NodeMessageHandler, Client};
 
 const TARGET_INDEX: u32 = 20;
 const RECOMMENDED_PEERS: u8 = 2;
@@ -80,23 +77,23 @@ impl<'a> LightClientBuilder<'a> {
     fn get_checkpoint_for_height(height: u32, network: &Network) -> HeaderCheckpoint {
         let checkpoints: Vec<HeaderCheckpoint> = match network {
             Network::Bitcoin => MAINNET_HEADER_CP
-                .to_vec()
-                .into_iter()
+                .iter()
+                .copied()
                 .map(|(height, hash)| {
                     HeaderCheckpoint::new(height, BlockHash::from_str(hash).unwrap())
                 })
                 .collect(),
             Network::Testnet => panic!(),
             Network::Signet => SIGNET_HEADER_CP
-                .to_vec()
-                .into_iter()
+                .iter()
+                .copied()
                 .map(|(height, hash)| {
                     HeaderCheckpoint::new(height, BlockHash::from_str(hash).unwrap())
                 })
                 .collect(),
             Network::Regtest => REGTEST_HEADER_CP
-                .to_vec()
-                .into_iter()
+                .iter()
+                .copied()
                 .map(|(height, hash)| {
                     HeaderCheckpoint::new(height, BlockHash::from_str(hash).unwrap())
                 })
@@ -139,6 +136,9 @@ impl<'a> LightClientBuilder<'a> {
                     node_builder = node_builder.anchor_checkpoint(header_cp)
                 }
             }
+        }
+        if let Some(dir) = self.data_dir {
+            node_builder = node_builder.add_data_dir(dir);
         }
         node_builder =
             node_builder.num_required_peers(self.connections.unwrap_or(RECOMMENDED_PEERS));

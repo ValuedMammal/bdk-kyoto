@@ -29,7 +29,7 @@ pub struct LightClientBuilder<'a, K> {
     message_handler: Option<Arc<dyn NodeMessageHandler>>,
 }
 
-impl<'a, K: fmt::Debug + Clone + Ord> LightClientBuilder<'a, K> {
+impl<'a, K> LightClientBuilder<'a, K> {
     /// Construct a new node builder
     pub fn new(cp: CheckPoint, index: &'a KeychainTxOutIndex<K>) -> Self {
         Self {
@@ -73,44 +73,12 @@ impl<'a, K: fmt::Debug + Clone + Ord> LightClientBuilder<'a, K> {
         self.birthday_height = Some(height);
         self
     }
+}
 
-    fn get_checkpoint_for_height(height: u32, network: &Network) -> HeaderCheckpoint {
-        let checkpoints: Vec<HeaderCheckpoint> = match network {
-            Network::Bitcoin => MAINNET_HEADER_CP
-                .iter()
-                .copied()
-                .map(|(height, hash)| {
-                    HeaderCheckpoint::new(height, BlockHash::from_str(hash).unwrap())
-                })
-                .collect(),
-            Network::Testnet => panic!(),
-            Network::Signet => SIGNET_HEADER_CP
-                .iter()
-                .copied()
-                .map(|(height, hash)| {
-                    HeaderCheckpoint::new(height, BlockHash::from_str(hash).unwrap())
-                })
-                .collect(),
-            Network::Regtest => REGTEST_HEADER_CP
-                .iter()
-                .copied()
-                .map(|(height, hash)| {
-                    HeaderCheckpoint::new(height, BlockHash::from_str(hash).unwrap())
-                })
-                .collect(),
-            _ => unreachable!(),
-        };
-        let mut cp = *checkpoints.first().unwrap();
-        for checkpoint in checkpoints {
-            if height.ge(&checkpoint.height) {
-                cp = checkpoint;
-            } else {
-                break;
-            }
-        }
-        cp
-    }
-
+impl<'a, K> LightClientBuilder<'a, K>
+where
+    K: fmt::Debug + Clone + Ord,
+{
     /// Build light client with node configured for [`Network::Signet`].
     pub fn build_signet(self) -> (Node, Client<K>) {
         self._build(Network::Signet)
@@ -134,7 +102,7 @@ impl<'a, K: fmt::Debug + Clone + Ord> LightClientBuilder<'a, K> {
                     let header_cp = HeaderCheckpoint::new(local_tip.height, local_tip.hash);
                     node_builder = node_builder.anchor_checkpoint(header_cp)
                 } else {
-                    let cp = Self::get_checkpoint_for_height(birthday, &network);
+                    let cp = get_checkpoint_for_height(birthday, &network);
                     node_builder = node_builder.anchor_checkpoint(cp)
                 }
             }
@@ -168,4 +136,35 @@ impl<'a, K: fmt::Debug + Clone + Ord> LightClientBuilder<'a, K> {
         }
         (node, client)
     }
+}
+
+fn get_checkpoint_for_height(height: u32, network: &Network) -> HeaderCheckpoint {
+    let checkpoints: Vec<HeaderCheckpoint> = match network {
+        Network::Bitcoin => MAINNET_HEADER_CP
+            .iter()
+            .copied()
+            .map(|(height, hash)| HeaderCheckpoint::new(height, BlockHash::from_str(hash).unwrap()))
+            .collect(),
+        Network::Testnet => panic!(),
+        Network::Signet => SIGNET_HEADER_CP
+            .iter()
+            .copied()
+            .map(|(height, hash)| HeaderCheckpoint::new(height, BlockHash::from_str(hash).unwrap()))
+            .collect(),
+        Network::Regtest => REGTEST_HEADER_CP
+            .iter()
+            .copied()
+            .map(|(height, hash)| HeaderCheckpoint::new(height, BlockHash::from_str(hash).unwrap()))
+            .collect(),
+        _ => unreachable!(),
+    };
+    let mut cp = *checkpoints.first().unwrap();
+    for checkpoint in checkpoints {
+        if height.ge(&checkpoint.height) {
+            cp = checkpoint;
+        } else {
+            break;
+        }
+    }
+    cp
 }

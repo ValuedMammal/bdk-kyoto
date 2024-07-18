@@ -5,7 +5,7 @@ use std::fmt::Debug;
 pub use kyoto::node::node::NodeState;
 
 /// Handle dialog and state changes from a node with some arbitrary behavior
-pub trait NodeMessageHandler: Send + Sync + Debug +'static {
+pub trait NodeMessageHandler: Send + Sync + Debug + 'static {
     /// Make use of some message the node has sent.
     fn handle_dialog(&self, dialog: String);
     /// Make use of some warning the ndoe has sent.
@@ -72,4 +72,3 @@ impl NodeMessageHandler for () {
     fn handle_warning(&self, _warning: String) {}
     fn handle_state_change(&self, _state: NodeState) {}
 }
-

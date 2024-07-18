@@ -5,8 +5,8 @@ use core::fmt;
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use bdk_wallet::bitcoin::{ScriptBuf, Transaction};
-use bdk_wallet::chain::{
+use bdk_chain::bitcoin::{ScriptBuf, Transaction};
+use bdk_chain::{
     keychain::KeychainTxOutIndex,
     local_chain::{self, CheckPoint, LocalChain},
     spk_client::FullScanResult,

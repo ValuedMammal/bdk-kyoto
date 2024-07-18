@@ -1,8 +1,9 @@
 //! [`bdk_kyoto::Client`] builder
 
+use core::fmt;
 use std::{collections::HashSet, path::PathBuf, str::FromStr, sync::Arc};
 
-use bdk_wallet::{KeychainKind, Wallet};
+use bdk_chain::{keychain::KeychainTxOutIndex, local_chain::CheckPoint, SpkIterator};
 use kyoto::{
     chain::checkpoints::{
         HeaderCheckpoint, MAINNET_HEADER_CP, REGTEST_HEADER_CP, SIGNET_HEADER_CP,
@@ -16,10 +17,11 @@ use crate::{logger::NodeMessageHandler, Client};
 const TARGET_INDEX: u32 = 20;
 const RECOMMENDED_PEERS: u8 = 2;
 
-#[derive(Debug)]
 /// Construct a light client from higher level components.
-pub struct LightClientBuilder<'a> {
-    wallet: &'a Wallet,
+#[derive(Debug)]
+pub struct LightClientBuilder<'a, K> {
+    cp: CheckPoint,
+    index: &'a KeychainTxOutIndex<K>,
     peers: Option<Vec<TrustedPeer>>,
     connections: Option<u8>,
     birthday_height: Option<u32>,
@@ -27,11 +29,12 @@ pub struct LightClientBuilder<'a> {
     message_handler: Option<Arc<dyn NodeMessageHandler>>,
 }
 
-impl<'a> LightClientBuilder<'a> {
+impl<'a, K: fmt::Debug + Clone + Ord> LightClientBuilder<'a, K> {
     /// Construct a new node builder
-    pub fn new(wallet: &'a Wallet) -> Self {
+    pub fn new(cp: CheckPoint, index: &'a KeychainTxOutIndex<K>) -> Self {
         Self {
-            wallet,
+            cp,
+            index,
             peers: None,
             connections: None,
             birthday_height: None,
@@ -52,10 +55,7 @@ impl<'a> LightClientBuilder<'a> {
     }
 
     /// Handle messages from the node
-    pub fn logger(
-        mut self,
-        message_handler: Arc<dyn NodeMessageHandler>,
-    ) -> Self {
+    pub fn logger(mut self, message_handler: Arc<dyn NodeMessageHandler>) -> Self {
         self.message_handler = Some(message_handler);
         self
     }
@@ -111,18 +111,27 @@ impl<'a> LightClientBuilder<'a> {
         cp
     }
 
+    /// Build light client with node configured for [`Network::Signet`].
+    pub fn build_signet(self) -> (Node, Client<K>) {
+        self._build(Network::Signet)
+    }
+
+    /// Build light client with node configured for [`Network::Bitcoin`].
+    pub fn build(self) -> (Node, Client<K>) {
+        self._build(Network::Bitcoin)
+    }
+
     /// Build a light client node and a client to interact with the node
-    pub fn build(self) -> (Node, Client<KeychainKind>) {
-        let network = self.wallet.network();
+    fn _build(self, network: Network) -> (Node, Client<K>) {
         let mut node_builder = NodeBuilder::new(network);
         if let Some(whitelist) = self.peers {
             node_builder = node_builder.add_peers(whitelist);
         }
+        let local_tip = self.cp.block_id();
         match self.birthday_height {
             Some(birthday) => {
-                if birthday < self.wallet.local_chain().tip().height() {
-                    let block_id = self.wallet.local_chain().tip();
-                    let header_cp = HeaderCheckpoint::new(block_id.height(), block_id.hash());
+                if birthday < local_tip.height {
+                    let header_cp = HeaderCheckpoint::new(local_tip.height, local_tip.hash);
                     node_builder = node_builder.anchor_checkpoint(header_cp)
                 } else {
                     let cp = Self::get_checkpoint_for_height(birthday, &network);
@@ -130,9 +139,8 @@ impl<'a> LightClientBuilder<'a> {
                 }
             }
             None => {
-                let block_id = self.wallet.local_chain().tip();
-                if block_id.height() > 0 {
-                    let header_cp = HeaderCheckpoint::new(block_id.height(), block_id.hash());
+                if local_tip.height > 0 {
+                    let header_cp = HeaderCheckpoint::new(local_tip.height, local_tip.hash);
                     node_builder = node_builder.anchor_checkpoint(header_cp)
                 }
             }
@@ -142,24 +150,19 @@ impl<'a> LightClientBuilder<'a> {
         }
         node_builder =
             node_builder.num_required_peers(self.connections.unwrap_or(RECOMMENDED_PEERS));
-        let mut spks: HashSet<ScriptBuf> = HashSet::new();
-        for keychain in [KeychainKind::External, KeychainKind::Internal] {
-            for index in 0..=self
-                .wallet
-                .spk_index()
-                .last_revealed_index(&keychain)
-                .unwrap_or(0)
-                + TARGET_INDEX
-            {
-                spks.insert(self.wallet.peek_address(keychain, index).script_pubkey());
-            }
-        }
+        let spks: HashSet<ScriptBuf> = self
+            .index
+            .keychains()
+            .flat_map(|(keychain, desc)| {
+                let target_idx = self
+                    .index
+                    .last_revealed_index(keychain)
+                    .unwrap_or(TARGET_INDEX);
+                SpkIterator::new_with_range(desc, 0..=target_idx).map(|(_i, spk)| spk)
+            })
+            .collect();
         let (node, kyoto_client) = node_builder.add_scripts(spks).build_node();
-        let mut client = Client::from_index(
-            self.wallet.local_chain().tip(),
-            self.wallet.spk_index(),
-            kyoto_client,
-        );
+        let mut client = Client::from_index(self.cp, self.index, kyoto_client);
         if let Some(logger) = self.message_handler {
             client.set_logger(logger)
         }

@@ -15,7 +15,7 @@ trace = ["tracing", "tracing-subscriber"]
 git = "https://github.com/rustaceanrob/kyoto"
 rev = "24e08d6b443558e2a29a8a6d639f36f662537084"
 
-[dependencies.bdk_wallet]
+[dependencies.bdk_chain]
 # verion alpha.13
 git = "https://github.com/bitcoindevkit/bdk"
 rev = "05438017876c3338d091ca85e52242b455e2193a"
@@ -26,10 +26,13 @@ anyhow = "1.0"
 tracing = { version = "0.1" }
 tracing-subscriber = { version = "0.3" }
 
+[dev-dependencies.bdk_wallet]
+# verion alpha.13
+git = "https://github.com/bitcoindevkit/bdk"
+rev = "05438017876c3338d091ca85e52242b455e2193a"
 
 [[example]]
 name = "signet"
 
 [[example]]
 name = "wallet"
-

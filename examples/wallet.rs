@@ -31,11 +31,12 @@ async fn main() -> anyhow::Result<()> {
     let mut wallet = Wallet::new(desc, change_desc, Network::Signet)?;
 
     // The light client builder handles the logic of inserting the SPKs
-    let (mut node, mut client) = LightClientBuilder::new(&wallet)
-        .scan_after(170_000)
-        .peers(peers)
-        .logger(Arc::new(TraceLogger::new()))
-        .build();
+    let (mut node, mut client) =
+        LightClientBuilder::new(wallet.latest_checkpoint(), wallet.spk_index())
+            .scan_after(170_000)
+            .peers(peers)
+            .logger(Arc::new(TraceLogger::new()))
+            .build_signet();
 
     tokio::task::spawn(async move { node.run().await });
 

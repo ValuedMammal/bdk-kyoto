@@ -7,18 +7,18 @@ edition = "2021"
 tracing = { version = "0.1", optional = true }
 tracing-subscriber = { version = "0.3", optional = true }
 
+[dependencies.kyoto]
+git = "https://github.com/rustaceanrob/kyoto"
+rev = "391bc1a1e921bbdf9f0cce58b115572b00b29146"
+
+[dependencies.bdk_chain]
+# verion beta.1
+git = "https://github.com/bitcoindevkit/bdk"
+rev = "17a9850cba06db837b82cef1dbaf2ef1e342f7ec"
+
 [features]
 default = ["trace"]
 trace = ["tracing", "tracing-subscriber"]
-
-[dependencies.kyoto]
-git = "https://github.com/rustaceanrob/kyoto"
-rev = "24e08d6b443558e2a29a8a6d639f36f662537084"
-
-[dependencies.bdk_chain]
-# verion alpha.13
-git = "https://github.com/bitcoindevkit/bdk"
-rev = "05438017876c3338d091ca85e52242b455e2193a"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"], default-features = false }
@@ -27,9 +27,9 @@ tracing = { version = "0.1" }
 tracing-subscriber = { version = "0.3" }
 
 [dev-dependencies.bdk_wallet]
-# verion alpha.13
+# verion beta.1
 git = "https://github.com/bitcoindevkit/bdk"
-rev = "05438017876c3338d091ca85e52242b455e2193a"
+rev = "17a9850cba06db837b82cef1dbaf2ef1e342f7ec"
 
 [[example]]
 name = "signet"

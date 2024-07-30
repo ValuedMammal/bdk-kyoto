@@ -2,16 +2,28 @@
 
 use std::fmt::Debug;
 
+pub use kyoto::node::messages::Warning;
 pub use kyoto::node::node::NodeState;
+pub use kyoto::Txid;
 
-/// Handle dialog and state changes from a node with some arbitrary behavior
+/// Handle dialog and state changes from a node with some arbitrary behavior.
+/// The primary purpose of this trait is not to respond to events by persisting changes,
+/// or acting on the underlying wallet. Instead, this trait should be used to drive changes in user
+/// interface behavior or keep a simple log. Relevant events that effect on the wallet are handled
+/// automatically in [`Client::update`].
 pub trait NodeMessageHandler: Send + Sync + Debug + 'static {
     /// Make use of some message the node has sent.
     fn handle_dialog(&self, dialog: String);
     /// Make use of some warning the ndoe has sent.
-    fn handle_warning(&self, warning: String);
+    fn handle_warning(&self, warning: Warning);
     /// Handle a change in the node's state.
-    fn handle_state_change(&self, state: NodeState);
+    fn handle_state_changed(&self, state: NodeState);
+    /// A transaction was broadcast to at least one peer.
+    fn handle_tx_sent(&self);
+    /// A list of block heights were reorganized
+    fn handle_blocks_disconnected(&self, blocks: Vec<u32>);
+    /// The node has synced to the height of the connected peers.
+    fn handle_synced(&self, tip: u32);
 }
 
 /// Print messages from the node to the console
@@ -30,12 +42,26 @@ impl NodeMessageHandler for PrintLogger {
         println!("{dialog}")
     }
 
-    fn handle_warning(&self, warning: String) {
+    fn handle_warning(&self, warning: Warning) {
         println!("{warning}")
     }
 
-    fn handle_state_change(&self, state: NodeState) {
-        println!("State change: {state:?}")
+    fn handle_state_changed(&self, state: NodeState) {
+        println!("State change: {state}")
+    }
+
+    fn handle_tx_sent(&self) {
+        println!("Transaction sent")
+    }
+
+    fn handle_blocks_disconnected(&self, blocks: Vec<u32>) {
+        for block in blocks {
+            println!("Block {block} was reorganized.");
+        }
+    }
+
+    fn handle_synced(&self, tip: u32) {
+        println!("Synced to tip {tip}")
     }
 }
 
@@ -58,17 +84,34 @@ impl NodeMessageHandler for TraceLogger {
         tracing::info!("{dialog}")
     }
 
-    fn handle_warning(&self, warning: String) {
+    fn handle_warning(&self, warning: Warning) {
         tracing::warn!("{warning}")
     }
 
-    fn handle_state_change(&self, state: NodeState) {
-        tracing::info!("State change: {state:?}")
+    fn handle_state_changed(&self, state: NodeState) {
+        tracing::info!("State change: {state}")
+    }
+
+    fn handle_tx_sent(&self) {
+        tracing::info!("Transaction sent")
+    }
+
+    fn handle_blocks_disconnected(&self, blocks: Vec<u32>) {
+        for block in blocks {
+            tracing::warn!("Block {block} was reorganized.");
+        }
+    }
+
+    fn handle_synced(&self, tip: u32) {
+        tracing::info!("Synced to height: {tip}")
     }
 }
 
 impl NodeMessageHandler for () {
     fn handle_dialog(&self, _dialog: String) {}
-    fn handle_warning(&self, _warning: String) {}
-    fn handle_state_change(&self, _state: NodeState) {}
+    fn handle_warning(&self, _warning: Warning) {}
+    fn handle_state_changed(&self, _state: NodeState) {}
+    fn handle_tx_sent(&self) {}
+    fn handle_blocks_disconnected(&self, _blocks: Vec<u32>) {}
+    fn handle_synced(&self, _tip: u32) {}
 }

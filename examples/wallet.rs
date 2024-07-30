@@ -4,14 +4,11 @@ use std::sync::Arc;
 use bdk_kyoto::builder::LightClientBuilder;
 use bdk_kyoto::logger::TraceLogger;
 use bdk_wallet::bitcoin::Network;
-use bdk_wallet::{wallet::Wallet, KeychainKind};
+use bdk_wallet::{KeychainKind, Wallet};
 use kyoto::TrustedPeer;
 
 /// Peer address whitelist
-const PEERS: &[IpAddr] = &[
-    IpAddr::V4(Ipv4Addr::new(170, 75, 163, 219)),
-    IpAddr::V4(Ipv4Addr::new(23, 137, 57, 100)),
-];
+const PEERS: &[IpAddr] = &[IpAddr::V4(Ipv4Addr::new(23, 137, 57, 100))];
 
 /* Sync a bdk wallet */
 
@@ -28,7 +25,9 @@ async fn main() -> anyhow::Result<()> {
         .map(|ip| TrustedPeer::from_ip(*ip))
         .collect();
 
-    let mut wallet = Wallet::new(desc, change_desc, Network::Signet)?;
+    let mut wallet = Wallet::create(desc, change_desc)
+        .network(Network::Signet)
+        .create_wallet_no_persist()?;
 
     // The light client builder handles the logic of inserting the SPKs
     let (mut node, mut client) =

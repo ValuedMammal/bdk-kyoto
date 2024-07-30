@@ -2,16 +2,17 @@
 #![warn(missing_docs)]
 
 use core::fmt;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 
 use bdk_chain::bitcoin::{ScriptBuf, Transaction};
 use bdk_chain::{
-    keychain::KeychainTxOutIndex,
+    indexer::keychain_txout::KeychainTxOutIndex,
     local_chain::{self, CheckPoint, LocalChain},
     spk_client::FullScanResult,
-    ConfirmationTimeHeightAnchor, IndexedTxGraph,
+    ConfirmationBlockTime, IndexedTxGraph,
 };
+use kyoto::impl_sourceless_error;
 
 use crate::logger::NodeMessageHandler;
 
@@ -39,7 +40,7 @@ pub struct Client<K> {
     // changes to local chain
     chain: local_chain::LocalChain,
     // receive graph
-    graph: IndexedTxGraph<ConfirmationTimeHeightAnchor, KeychainTxOutIndex<K>>,
+    graph: IndexedTxGraph<ConfirmationBlockTime, KeychainTxOutIndex<K>>,
     // messages
     message_handler: Arc<dyn NodeMessageHandler>,
 }
@@ -72,7 +73,7 @@ where
     /// Return the most recent update from the node once it has synced to the network's tip.
     /// This may take a significant portion of time during wallet recoveries or dormant wallets.
     pub async fn update(&mut self) -> Option<FullScanResult<K>> {
-        let mut chain_changeset = local_chain::ChangeSet::new();
+        let mut chain_changeset = BTreeMap::new();
         while let Ok(message) = self.receiver.recv().await {
             self.handle_log(&message);
             match message {
@@ -104,7 +105,9 @@ where
                 _ => (),
             }
         }
-        self.chain.apply_changeset(&chain_changeset).unwrap();
+        self.chain
+            .apply_changeset(&local_chain::ChangeSet::from(chain_changeset))
+            .unwrap();
         Some(FullScanResult {
             graph_update: self.graph.graph().clone(),
             chain_update: self.chain.tip(),
@@ -118,7 +121,7 @@ where
         match message {
             NodeMessage::Dialog(d) => logger.handle_dialog(d.clone()),
             NodeMessage::Warning(w) => logger.handle_warning(w.clone()),
-            NodeMessage::StateChange(s) => logger.handle_state_change(*s),
+            NodeMessage::StateChange(s) => logger.handle_state_changed(*s),
             NodeMessage::Block(b) => {
                 let hash = b.block.header.block_hash();
                 logger.handle_dialog(format!("Applying Block: {hash}"));
@@ -127,20 +130,17 @@ where
                 tip,
                 recent_history: _,
             }) => {
-                logger.handle_dialog(format!("Synced to tip {} {}", tip.height, tip.hash));
+                logger.handle_synced(tip.height);
             }
             NodeMessage::BlocksDisconnected(headers) => {
-                for header in headers {
-                    let height = header.height;
-                    logger.handle_warning(format!("Disconnecting block: {height}"));
-                }
+                logger
+                    .handle_blocks_disconnected(headers.into_iter().map(|dc| dc.height).collect());
             }
-            NodeMessage::TxSent(t) => {
-                logger.handle_dialog(format!("Transaction sent: {t}"));
+            NodeMessage::TxSent(_t) => {
+                // If this becomes a type in UniFFI then we can pass it to handle_tx_sent
+                logger.handle_tx_sent();
             }
-            NodeMessage::TxBroadcastFailure(r) => {
-                logger.handle_warning(format!("Transaction rejected: {:?}", r.reason));
-            }
+            NodeMessage::TxBroadcastFailure(_r) => {}
             _ => (),
         }
     }
@@ -151,7 +151,13 @@ where
         tx: &Transaction,
         policy: TxBroadcastPolicy,
     ) -> Result<(), Error> {
-        self.transaction_broadcaster().broadcast(tx, policy).await
+        self.sender
+            .broadcast_tx(TxBroadcast {
+                tx: tx.clone(),
+                broadcast_policy: policy,
+            })
+            .await
+            .map_err(Error::Sender)
     }
 
     /// Add more scripts to the node. Could this just check a SPK index?
@@ -186,7 +192,7 @@ pub struct TransactionBroadcaster {
 
 impl TransactionBroadcaster {
     /// Create a new transaction broadcaster with the given client `sender`.
-    pub fn new(sender: client::ClientSender) -> Self {
+    fn new(sender: client::ClientSender) -> Self {
         Self { sender }
     }
 
@@ -216,9 +222,12 @@ pub enum Error {
 impl core::fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Sender(e) => e.fmt(f),
+            Self::Sender(e) => write!(
+                f,
+                "the receiving channel has been close. Is the node still running?: {e}"
+            ),
         }
     }
 }
 
-impl std::error::Error for Error {}
+impl_sourceless_error!(Error);

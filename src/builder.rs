@@ -3,7 +3,9 @@
 use core::fmt;
 use std::{collections::HashSet, path::PathBuf, str::FromStr, sync::Arc};
 
-use bdk_chain::{keychain::KeychainTxOutIndex, local_chain::CheckPoint, SpkIterator};
+use bdk_chain::{
+    indexer::keychain_txout::KeychainTxOutIndex, local_chain::CheckPoint, SpkIterator,
+};
 use kyoto::{
     chain::checkpoints::{
         HeaderCheckpoint, MAINNET_HEADER_CP, REGTEST_HEADER_CP, SIGNET_HEADER_CP,

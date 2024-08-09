@@ -1,8 +1,4 @@
-#![allow(unused)]
-use bdk_kyoto::logger::PrintLogger;
 use bdk_wallet::chain::spk_client::FullScanResult;
-use std::net::{IpAddr, Ipv4Addr};
-use std::sync::Arc;
 use std::time::Duration;
 use tokio::task;
 use tokio::time;
@@ -15,7 +11,7 @@ use bdk_testenv::bitcoind::BitcoinD;
 use bdk_testenv::TestEnv;
 use bdk_wallet::bitcoin::{Amount, Network};
 use bdk_wallet::CreateParams;
-use bdk_wallet::{KeychainKind, Wallet};
+use bdk_wallet::KeychainKind;
 
 const EXTERNAL_DESCRIPTOR: &str = "tr([7d94197e/86'/1'/0']tpubDCyQVJj8KzjiQsFjmb3KwECVXPvMwvAxxZGCP9XmWSopmjW3bCV3wD7TgxrUhiGSueDS1MU5X1Vb1YjYcp8jitXc5fXfdC1z68hDDEyKRNr/0/*)";
 const INTERNAL_DESCRIPTOR: &str = "tr([7d94197e/86'/1'/0']tpubDCyQVJj8KzjiQsFjmb3KwECVXPvMwvAxxZGCP9XmWSopmjW3bCV3wD7TgxrUhiGSueDS1MU5X1Vb1YjYcp8jitXc5fXfdC1z68hDDEyKRNr/1/*)";
@@ -28,7 +24,7 @@ fn wait_for_height(env: &TestEnv, height: u32) -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn it_works() -> anyhow::Result<()> {
+async fn update_returns_blockchain_data() -> anyhow::Result<()> {
     let mut env = TestEnv::new()?;
 
     // workaround to enable compact filters
@@ -47,11 +43,12 @@ async fn it_works() -> anyhow::Result<()> {
         .get_new_address(None, None)?
         .assume_checked();
 
-    let mut wallet = CreateParams::new(EXTERNAL_DESCRIPTOR, INTERNAL_DESCRIPTOR)
+    let wallet = CreateParams::new(EXTERNAL_DESCRIPTOR, INTERNAL_DESCRIPTOR)
         .network(Network::Regtest)
         .create_wallet_no_persist()?;
 
-    let addr = wallet.next_unused_address(KeychainKind::External).address;
+    let index = 2;
+    let addr = wallet.peek_address(KeychainKind::External, index).address;
 
     // build client
     let peer = TrustedPeer {
@@ -60,19 +57,18 @@ async fn it_works() -> anyhow::Result<()> {
     };
     let (mut node, mut client) = LightClientBuilder::new(&wallet)
         .peers(vec![peer])
-        .logger(Arc::new(PrintLogger::new()))
+        // .logger(Arc::new(PrintLogger::new()))
         .connections(1)
         .build();
 
     // mine blocks
     let _hashes = env.mine_blocks(101, Some(miner.clone()))?;
     wait_for_height(&env, 101)?;
-    println!("Height: {}", env.rpc_client().get_block_count()?);
-    
+
     // send tx
-    let txid = env.send(&addr, Amount::from_btc(0.21)?)?;
-    println!("Txid: {txid}");
-    let _ = env.mine_blocks(1, Some(miner))?;
+    let amt = Amount::from_btc(0.21)?;
+    let txid = env.send(&addr, amt)?;
+    let hashes = env.mine_blocks(1, Some(miner))?;
     wait_for_height(&env, 102)?;
 
     // run node
@@ -87,12 +83,24 @@ async fn it_works() -> anyhow::Result<()> {
             chain_update,
             last_active_indices,
         } = update;
-        dbg!(&graph_update);
-        dbg!(chain_update.height());
-        dbg!(&last_active_indices);
-        // let _ = wallet.apply_update(update)?;
+        // graph tx and anchor
+        let tx_node = graph_update.full_txs().next().unwrap();
+        assert_eq!(tx_node.txid, txid);
+        let anchor = tx_node.anchors.first().unwrap();
+        assert_eq!(anchor.block_id.height, 102);
+        assert_eq!(anchor.block_id.hash, hashes[0]);
+        let tx = tx_node.tx;
+        let txout = tx.output.iter().find(|txout| txout.value == amt).unwrap();
+        assert_eq!(txout.script_pubkey, addr.script_pubkey());
+        // chain
+        assert_eq!(chain_update.height(), 102);
+        // keychain
+        assert_eq!(
+            last_active_indices,
+            [(KeychainKind::External, index)].into()
+        );
     }
-    
+
     client.shutdown().await?;
 
     Ok(())

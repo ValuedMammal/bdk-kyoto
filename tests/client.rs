@@ -34,12 +34,13 @@ async fn it_works() -> anyhow::Result<()> {
     // workaround to enable compact filters
     let _ = env.rpc_client().stop()?;
     let mut conf = bitcoind::Conf::default();
+    conf.p2p = bitcoind::P2P::Yes;
     conf.args.push("-blockfilterindex=1");
     conf.args.push("-peerblockfilters=1");
     let bitcoind = BitcoinD::with_conf(bitcoind::downloaded_exe_path()?, &conf)?;
     env.bitcoind = bitcoind;
 
-    let peer = env.bitcoind.params.rpc_socket;
+    let peer = env.bitcoind.params.p2p_socket.unwrap();
 
     let miner = env
         .rpc_client()
@@ -62,11 +63,6 @@ async fn it_works() -> anyhow::Result<()> {
         .logger(Arc::new(PrintLogger::new()))
         .connections(1)
         .build();
-        
-    // run node
-    if !node.is_running() {
-        task::spawn(async move { node.run().await });
-    }
 
     // mine blocks
     let _hashes = env.mine_blocks(101, Some(miner.clone()))?;
@@ -79,7 +75,10 @@ async fn it_works() -> anyhow::Result<()> {
     let _ = env.mine_blocks(1, Some(miner))?;
     wait_for_height(&env, 102)?;
 
-    let _ = time::sleep(Duration::from_secs(10));
+    // run node
+    if !node.is_running() {
+        task::spawn(async move { node.run().await });
+    }
 
     // get update
     if let Some(update) = client.update().await {

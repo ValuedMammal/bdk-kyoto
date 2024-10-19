@@ -12,13 +12,20 @@ edition = "2021"
 rust-version = "1.63.0"
 
 [dependencies]
-bdk_chain = { version = "0.20.0" }
+#bdk_chain = { version = "0.20.0" }
 kyoto-cbf = { version = "0.3.0", default-features = false, features = ["dns"] }
 tracing = { version = "0.1", optional = true }
 tracing-subscriber = { version = "0.3", optional = true }
 
+[dependencies.bdk_chain]
+git = "https://github.com/rustaceanrob/bdk"
+branch = "local-chain-update-10-18"
+
 [dependencies.bdk_wallet]
-version = "1.0.0-beta.5"
+#version = "1.0.0-beta.5"
+git = "https://github.com/rustaceanrob/bdk"
+branch = "local-chain-update-10-18"
+features = ["rusqlite"]
 optional = true
 
 [features]

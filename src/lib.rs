@@ -168,7 +168,7 @@ use bdk_chain::{
     keychain_txout::KeychainTxOutIndex,
     local_chain::{self, CheckPoint, LocalChain},
     spk_client::FullScanResult,
-    IndexedTxGraph,
+    BlockId, IndexedTxGraph,
 };
 use bdk_chain::{ConfirmationBlockTime, TxUpdate};
 use kyoto::{IndexedBlock, NodeMessage, SyncUpdate, TxBroadcast};
@@ -299,6 +299,11 @@ where
         }
     }
 
+    /// Get scan response
+    ///
+    /// This should be called once the node sends a `Synced` message and we're ready to
+    /// return an update. The effect is to reset the `Client`'s indexed tx-graph to a
+    /// new empty graph without changing the keychain indexer.
     fn get_scan_response(&mut self) -> FullScanResult<K> {
         let tx_update = TxUpdate::from(self.graph.graph().clone());
         let graph = core::mem::take(&mut self.graph);
@@ -335,41 +340,35 @@ where
                 }
                 NodeMessage::ConnectionsMet => return Some(Event::PeersFound),
                 NodeMessage::Block(IndexedBlock { height, block }) => {
-                    // This is weird but I'm having problems doing things differently.
-                    let mut chain_changeset = BTreeMap::new();
-                    chain_changeset.insert(height, Some(block.block_hash()));
-                    self.chain
-                        .apply_changeset(&local_chain::ChangeSet::from(chain_changeset))
-                        .expect("chain initialized with genesis");
+                    // insert block into chain and apply block to graph
+                    let block_id = BlockId {
+                        height,
+                        hash: block.block_hash(),
+                    };
+                    let _ = self.chain.insert_block(block_id).expect("must connect");
                     let _ = self.graph.apply_block_relevant(&block, height);
                     return Some(Event::Log(format!(
                         "Applied block {} to keychain",
                         block.block_hash()
                     )));
                 }
-                NodeMessage::Synced(SyncUpdate {
-                    tip: _,
-                    recent_history,
-                }) => {
-                    let mut chain_changeset = BTreeMap::new();
-                    recent_history.into_iter().for_each(|(height, header)| {
-                        chain_changeset.insert(height, Some(header.block_hash()));
-                    });
-                    self.chain
-                        .apply_changeset(&local_chain::ChangeSet::from(chain_changeset))
-                        .expect("chain was initialized with genesis");
-                    let result = self.get_scan_response();
-                    return Some(Event::ScanResponse(result));
+                NodeMessage::Synced(SyncUpdate { tip, .. }) => {
+                    // insert new tip and return scan response
+                    let block_id = BlockId {
+                        height: tip.height,
+                        hash: tip.hash,
+                    };
+                    let _ = self.chain.insert_block(block_id).expect("must connect");
+                    let resp = self.get_scan_response();
+                    return Some(Event::ScanResponse(resp));
                 }
                 NodeMessage::BlocksDisconnected(headers) => {
-                    let mut chain_changeset = BTreeMap::new();
-                    for dc in &headers {
-                        let height = dc.height;
-                        chain_changeset.insert(height, None);
+                    // disconnect blocks from chain
+                    let mut changeset = local_chain::ChangeSet::default();
+                    for header in &headers {
+                        changeset.blocks.insert(header.height, None);
                     }
-                    self.chain
-                        .apply_changeset(&local_chain::ChangeSet::from(chain_changeset))
-                        .expect("chain was initialized with genesis.");
+                    self.chain.apply_changeset(&changeset).expect("valid chain");
                     return Some(Event::BlocksDisconnected(headers));
                 }
                 NodeMessage::TxSent(txid) => {
@@ -510,12 +509,6 @@ pub enum Event<K: fmt::Debug + Clone + Ord> {
     /// is running and is connected to peers.
     ScanResponse(FullScanResult<K>),
     /// Blocks were reorganized from the chain of most work.
-    ///
-    /// ## Note
-    ///
-    /// No action is required from the developer, as these events are already
-    /// handled within the [`Client`]. This event is to inform the user of
-    /// such an event.
     BlocksDisconnected(Vec<DisconnectedHeader>),
 }
 

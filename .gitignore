@@ -12,3 +12,5 @@ data/
 # files
 *.log
 *.txt
+*.db
+
